@@ -71,10 +71,11 @@ class PlayerLogicHelpers :
 		IPluginFunction *fun;
 		SourceHook::String phrase;
 		bool phraseIsML;
+		bool enableTriggeredClientIdx;
 
 		SimpleMultiTargetFilter(IPlugin *plugin, const char *pattern, IPluginFunction *fun,
-		                        const char *phrase, bool phraseIsML)
-		  : plugin(plugin), pattern(pattern), fun(fun), phrase(phrase), phraseIsML(phraseIsML)
+		                        const char *phrase, bool phraseIsML, bool enableTriggeredClientIdx)
+		  : plugin(plugin), pattern(pattern), fun(fun), phrase(phrase), phraseIsML(phraseIsML), enableTriggeredClientIdx(enableTriggeredClientIdx)
 		{
 		}
 	};
@@ -84,10 +85,10 @@ class PlayerLogicHelpers :
 
 public:
 	void AddMultiTargetFilter(IPlugin *plugin, const char *pattern, IPluginFunction *fun,
-	                          const char *phrase, bool phraseIsML)
+	                          const char *phrase, bool phraseIsML, bool enableTriggeredClientIdx)
 	{
 		SimpleMultiTargetFilter *smtf = new SimpleMultiTargetFilter(plugin, pattern, fun, phrase,
-		                                                            phraseIsML);
+		                                                            phraseIsML, enableTriggeredClientIdx);
 
 		simpleMultis.push_back(smtf);
 
@@ -97,12 +98,12 @@ public:
 		}
 	}
 
-	void RemoveMultiTargetFilter(const char *pattern, IPluginFunction *fun)
+	void RemoveMultiTargetFilter(const char *pattern, IPluginFunction *fun, bool enableTriggeredClientIdx)
 	{
 		List<SimpleMultiTargetFilter *>::iterator iter = simpleMultis.begin();
 
 		while (iter != simpleMultis.end()) {
-			if ((*iter)->fun == fun && strcmp((*iter)->pattern.c_str(), pattern) == 0) {
+			if ((*iter)->fun == fun && strcmp((*iter)->pattern.c_str(), pattern) == 0 && enableTriggeredClientIdx == (*iter)->enableTriggeredClientIdx) {
 				delete (*iter);
 				iter = simpleMultis.erase(iter);
 				break;
@@ -136,6 +137,9 @@ public: //ICommandTargetProcessor
 
 				smtf->fun->PushString(info->pattern);
 				smtf->fun->PushCell(ahc.getClone());
+				if (smtf->enableTriggeredClientIdx) {
+					smtf->fun->PushCell(info->admin);
+				}
 				cell_t result = 0;
 				if (smtf->fun->Execute(&result) != SP_ERROR_NONE || !result)
 					return false;
@@ -224,7 +228,7 @@ AddMultiTargetFilter(IPluginContext *ctx, const cell_t *params)
 	bool phraseIsML = !!params[4];
 	IPlugin *plugin = pluginsys->FindPluginByContext(ctx->GetContext());
 
-	s_PlayerLogicHelpers.AddMultiTargetFilter(plugin, pattern, fun, phrase, phraseIsML);
+	s_PlayerLogicHelpers.AddMultiTargetFilter(plugin, pattern, fun, phrase, phraseIsML, false);
 
 	return 1;
 }
@@ -240,7 +244,44 @@ RemoveMultiTargetFilter(IPluginContext *ctx, const cell_t *params)
 
 	ctx->LocalToString(params[1], &pattern);
 
-	s_PlayerLogicHelpers.RemoveMultiTargetFilter(pattern, fun);
+	s_PlayerLogicHelpers.RemoveMultiTargetFilter(pattern, fun, false);
+
+	return 1;
+}
+
+static cell_t
+AddMultiTargetFilter2(IPluginContext *ctx, const cell_t *params)
+{
+	IPluginFunction *fun = ctx->GetFunctionById(funcid_t(params[2]));
+	if (fun == NULL)
+		return ctx->ThrowNativeError("Invalid function id (%X)", params[2]);
+
+	char *pattern;
+	char *phrase;
+
+	ctx->LocalToString(params[1], &pattern);
+	ctx->LocalToString(params[3], &phrase);
+
+	bool phraseIsML = !!params[4];
+	IPlugin *plugin = pluginsys->FindPluginByContext(ctx->GetContext());
+
+	s_PlayerLogicHelpers.AddMultiTargetFilter(plugin, pattern, fun, phrase, phraseIsML, true);
+
+	return 1;
+}
+
+static cell_t
+RemoveMultiTargetFilter2(IPluginContext *ctx, const cell_t *params)
+{
+	IPluginFunction *fun = ctx->GetFunctionById(funcid_t(params[2]));
+	if (fun == NULL)
+		return ctx->ThrowNativeError("Invalid function id (%X)", params[2]);
+
+	char *pattern;
+
+	ctx->LocalToString(params[1], &pattern);
+
+	s_PlayerLogicHelpers.RemoveMultiTargetFilter(pattern, fun, true);
 
 	return 1;
 }
@@ -1605,8 +1646,10 @@ static cell_t sm_GetClientFromSerial(IPluginContext *pContext, const cell_t *par
 
 REGISTER_NATIVES(playernatives)
 {
-	{"AddMultiTargetFilter",	AddMultiTargetFilter},
-	{"RemoveMultiTargetFilter",	RemoveMultiTargetFilter},
+	{ "AddMultiTargetFilter", AddMultiTargetFilter },
+	{ "RemoveMultiTargetFilter", RemoveMultiTargetFilter },
+	{ "AddMultiTargetFilter2", AddMultiTargetFilter2 },
+	{ "RemoveMultiTargetFilter2", RemoveMultiTargetFilter2 },
 	{ "AddUserFlags", AddUserFlags },
 	{ "CanUserTarget", CanUserTarget },
 	{ "ChangeClientTeam", ChangeClientTeam },
